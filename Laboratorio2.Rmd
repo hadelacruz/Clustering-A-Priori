@@ -1,0 +1,202 @@
+---
+title: "Laboratorio 2"
+author: "Humberto de la Cruz, Dilary Cruz, Daniel Juárez"
+date: "2026-02-23"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r preprocesamiento, message=FALSE, warning=FALSE}
+# =====================================================
+# Carga de librerías y datos
+# =====================================================
+# Nota: Asegúrate de tener instalado fastDummies en tu consola, 
+# no uses install.packages() dentro del Rmd.
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(fastDummies)
+
+movies <- read.csv("movies_2026.csv", header = TRUE)
+movies_clean <- movies
+
+# =====================================================
+# 1. Eliminar columnas que no aportan al clustering
+# =====================================================
+movies_clean <- movies_clean %>%
+  select(-id, -originalTitle, -title, -homePage, -actorsCharacter,
+         -releaseDate, -productionCompany, -productionCompanyCountry,
+         -actors, -actorsPopularity, -productionCountry, -director,
+         -originalLanguage, -video)
+
+# =====================================================
+# 2. Crear variables agregadas de actorsPopularity
+# =====================================================
+actor_pop_list <- strsplit(movies$actorsPopularity, "\\|")
+
+movies_clean$mean_actor_popularity <- sapply(actor_pop_list, function(x) {
+  vals <- as.numeric(x)
+  vals <- vals[!is.na(vals)]
+  if(length(vals) == 0) return(NA)
+  mean(vals)
+})
+
+movies_clean$max_actor_popularity <- sapply(actor_pop_list, function(x) {
+  vals <- as.numeric(x)
+  vals <- vals[!is.na(vals)]
+  if(length(vals) == 0) return(NA)
+  max(vals)
+})
+
+# =====================================================
+# 3. Transformación logarítmica y filtros
+# =====================================================
+movies_clean <- movies_clean %>%
+  mutate(
+    budget_log  = log1p(budget),
+    revenue_log = log1p(revenue)
+  ) %>%
+  select(-budget, -revenue) %>%
+  # Es mejor filtrar anomalías ANTES de escalar
+  filter(voteCount > 0, 
+         voteAvg > 0, 
+         budget_log > 0, 
+         revenue_log > 0)
+
+
+# =====================================================
+# 4. Crear variables dummy para los géneros más frecuentes
+# =====================================================
+genres_long <- movies %>%
+  select(genres) %>%
+  separate_rows(genres, sep = "\\|")
+
+top_genres <- genres_long %>%
+  count(genres, sort = TRUE) %>%
+  slice(1:8) %>%
+  pull(genres)
+
+# ¡AQUÍ ESTÁ LA CORRECCIÓN! Usamos movies_clean$genres en vez de movies$genres
+movies_clean$main_genre <- sapply(strsplit(movies_clean$genres, "\\|"), function(x) {
+  g <- x[x %in% top_genres]
+  if(length(g) == 0) return("Other")
+  g[1]
+})
+
+movies_clean <- dummy_cols(movies_clean,
+                           select_columns = "main_genre",
+                           remove_first_dummy = FALSE,
+                           remove_selected_columns = TRUE)
+
+# Eliminar columna original de géneros
+movies_clean <- movies_clean %>% select(-genres)
+
+
+# =====================================================
+# 5. Limpieza de NAs y Escalamiento (Crucial)
+# =====================================================
+movies_clean <- na.omit(movies_clean)
+
+# Escalar y convertir a data frame
+movies_scaled <- as.data.frame(scale(movies_clean))
+
+# Verificar resultado
+dim(movies_scaled)
+```
+
+
+
+
+## 1.2 Tendencia al Agrupamiento (Hopkins y VAT)
+
+```{r punto-1-2, message=FALSE, warning=FALSE, fig.height=5, fig.width=5}
+library(factoextra)
+library(clustertend)
+
+# Tomamos una muestra de 1000 observaciones para no saturar la memoria RAM
+# al calcular la matriz de distancias para el VAT
+set.seed(23709) 
+muestra_idx <- sample(1:nrow(movies_scaled), 1000)
+movies_muestra <- movies_scaled[muestra_idx, ]
+
+# Estadístico de Hopkins
+hopkins_stat <- hopkins(movies_muestra, n = nrow(movies_muestra) - 1)
+cat("Estadístico de Hopkins:", hopkins_stat$H, "\n")
+
+# Gráfica VAT
+fviz_dist(dist(movies_muestra), show_labels = FALSE) +
+  labs(title = "VAT - Visual Assessment of cluster Tendency")
+```
+
+
+```{r}
+# Gráfica de Codo (Elbow Method)
+set.seed(23709)
+fviz_nbclust(movies_scaled, kmeans, method = "wss", k.max = 10) +
+  labs(title = "Método del Codo para determinar k óptimo",
+       x = "Número de Clústeres k", y = "Suma de Cuadrados Intra-grupo (WSS)")
+```
+
+```{r}
+k_optimo <- 3
+
+# 1. K-Medias
+set.seed(23709)
+kmeans_res <- kmeans(movies_scaled, centers = k_optimo, nstart = 25)
+
+# 2. Clustering Jerárquico (Usando la muestra por capacidad de cómputo)
+matriz_distancias <- dist(movies_muestra)
+hc_res <- hclust(matriz_distancias, method = "ward.D")
+hc_grupos <- cutree(hc_res, k = k_optimo)
+
+# Comparación visual (K-medias)
+fviz_cluster(kmeans_res, data = movies_scaled, 
+             geom = "point", ellipse.type = "convex", 
+             show.clust.cent = FALSE, labelsize = 0,
+             main = "Agrupamiento K-Medias")
+```
+
+```{r}
+library(cluster)
+
+# Silueta para K-medias (sobre una muestra representativa)
+sil_kmeans <- silhouette(kmeans_res$cluster[muestra_idx], dist(movies_muestra))
+fviz_silhouette(sil_kmeans, print.summary = FALSE) + 
+  labs(title = "Silueta para K-Medias (k=3)")
+
+# Silueta para Jerárquico
+sil_hc <- silhouette(hc_grupos, matriz_distancias)
+fviz_silhouette(sil_hc, print.summary = FALSE) + 
+  labs(title = "Silueta para Jerárquico (k=3)")
+```
+
+
+
+```{r}
+# Agregar el cluster de k-medias al dataset limpio original para interpretar
+movies_analisis <- movies_clean %>%
+  mutate(Cluster = as.factor(kmeans_res$cluster))
+
+# Medidas de tendencia central por grupo (Variables continuas)
+resumen_grupos <- movies_analisis %>%
+  group_by(Cluster) %>%
+  summarise(
+    Promedio_Popularidad = mean(popularity),
+    Promedio_Votos_Avg = mean(voteAvg),
+    Promedio_Duracion = mean(runtime),
+    Promedio_Ingresos_Log = mean(revenue_log),
+    Cant_Peliculas = n()
+  )
+
+knitr::kable(resumen_grupos, digits = 2, caption = "Perfil Promedio por Clúster")
+```
+
+
+
+
+
+
+
