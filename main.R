@@ -125,4 +125,16 @@ dim(movies_scaled)
 summary(movies_scaled)
 colnames(movies_clean)
 
+movies_clean <- movies_clean %>%
+  filter(voteCount > 0)
+
+movies_clean <- movies_clean %>%
+  filter(voteAvg  > 0)
+
+movies_clean <- movies_clean %>%
+  filter(budget_log > 0)
+
+movies_clean <- movies_clean %>%
+  filter(revenue_log > 0)
+
 str(movies_clean)
