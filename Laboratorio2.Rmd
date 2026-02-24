@@ -195,19 +195,20 @@ knitr::kable(resumen_grupos, digits = 2, caption = "Perfil Promedio por Clúster
 ```
 
 
+## 3. Análisis de Componentes Principales (PCA)
+
+### 3.1 Evaluación de variables categóricas
+
+El PCA requiere variables numéricas continuas.  
+Las variables categóricas como director, actores y compañías productoras presentan alta cardinalidad, por lo que transformarlas en variables dummy incrementaría excesivamente la dimensionalidad.  
+
+Por ello, el análisis se realiza únicamente con variables numéricas previamente transformadas.
 
 
-
-# 3. Análisis de Componentes Principales (PCA) 
-
-# Librerías necesarias
+```{r}
 library(psych)
 library(factoextra)
 library(corrplot)
-
-
-
-# 3.1 Selección de variables numéricas
 
 numericas_pca <- movies_clean %>%
   select(popularity, runtime, voteCount, voteAvg,
@@ -219,11 +220,14 @@ numericas_pca <- movies_clean %>%
          releaseYear) %>%
   na.omit()
 
+dim(numericas_pca)
+```
 
+### 3.2 Evaluación de factibilidad del PCA
 
-# 3.2 Evaluación de factibilidad del PCA
+Se analiza la matriz de correlación, el test de esfericidad de Bartlett y el índice KMO para determinar si es adecuado aplicar PCA.
 
-# Matriz de correlación
+```{r}
 cor_matrix <- cor(numericas_pca)
 
 corrplot(cor_matrix,
@@ -231,48 +235,36 @@ corrplot(cor_matrix,
          type = "upper",
          tl.cex = 0.6)
 
-# Test de esfericidad de Bartlett
 bartlett_test <- cortest.bartlett(cor_matrix,
                                   n = nrow(numericas_pca))
 bartlett_test
 
-# Índice KMO
 kmo_result <- KMO(cor_matrix)
 kmo_result
+```
 
+### 3.3 Aplicación del Análisis de Componentes Principales
 
+Se estandarizan las variables y se ejecuta el PCA.  
+Posteriormente se analiza la varianza explicada y las cargas factoriales.
 
-# 3.3 Aplicación del PCA
-
-# Estandarización
+```{r}
 numericas_scaled <- scale(numericas_pca)
 
-# Ejecutar PCA
 pca_result <- prcomp(numericas_scaled,
                      center = TRUE,
                      scale. = TRUE)
 
-# Resumen del PCA
 summary(pca_result)
 
-# Scree Plot
 fviz_eig(pca_result, addlabels = TRUE)
 
-# Varianza acumulada
-varianza <- summary(pca_result)$importance
-varianza
+summary(pca_result)$importance
 
-# Cargas factoriales
-loadings <- round(pca_result$rotation, 3)
-loadings
+round(pca_result$rotation, 3)
 
-# Biplot
 fviz_pca_biplot(pca_result,
                 repel = TRUE,
                 col.var = "blue",
                 col.ind = "gray")
-
-
-
-
-
+```
