@@ -30,7 +30,7 @@ movies_clean <- movies_clean %>%
   select(-id, -originalTitle, -title, -homePage, -actorsCharacter,
          -releaseDate, -productionCompany, -productionCompanyCountry,
          -actors, -actorsPopularity, -productionCountry, -director,
-         -originalLanguage, -video)
+         -originalLanguage, -video, -genres )
 
 # =====================================================
 # 2. Crear variables agregadas de actorsPopularity
@@ -70,29 +70,9 @@ movies_clean <- movies_clean %>%
 # =====================================================
 # 4. Crear variables dummy para los géneros más frecuentes
 # =====================================================
-genres_long <- movies %>%
-  select(genres) %>%
-  separate_rows(genres, sep = "\\|")
-
-top_genres <- genres_long %>%
-  count(genres, sort = TRUE) %>%
-  slice(1:8) %>%
-  pull(genres)
-
-# ¡AQUÍ ESTÁ LA CORRECCIÓN! Usamos movies_clean$genres en vez de movies$genres
-movies_clean$main_genre <- sapply(strsplit(movies_clean$genres, "\\|"), function(x) {
-  g <- x[x %in% top_genres]
-  if(length(g) == 0) return("Other")
-  g[1]
-})
-
-movies_clean <- dummy_cols(movies_clean,
-                           select_columns = "main_genre",
-                           remove_first_dummy = FALSE,
-                           remove_selected_columns = TRUE)
 
 # Eliminar columna original de géneros
-movies_clean <- movies_clean %>% select(-genres)
+#movies_clean <- movies_clean %>% select(-genres)
 
 
 # =====================================================
@@ -105,6 +85,8 @@ movies_scaled <- as.data.frame(scale(movies_clean))
 
 # Verificar resultado
 dim(movies_scaled)
+summary(movies_scaled)
+
 ```
 
 
@@ -133,15 +115,23 @@ fviz_dist(dist(movies_muestra), show_labels = FALSE) +
 
 
 ```{r}
-# Gráfica de Codo (Elbow Method)
-set.seed(23709)
-fviz_nbclust(movies_scaled, kmeans, method = "wss", k.max = 10) +
-  labs(title = "Método del Codo para determinar k óptimo",
-       x = "Número de Clústeres k", y = "Suma de Cuadrados Intra-grupo (WSS)")
+fviz_nbclust(
+  movies_scaled,
+  FUNcluster = function(x, k){
+    kmeans(x, centers = k, nstart = 25, iter.max = 100)
+  },
+  method = "wss",
+  k.max = 10
+) +
+labs(
+  title = "Metodo del Codo para determinar k optimo",
+  x = "Numero de Clusters k",
+  y = "Suma de Cuadrados Intra-grupo (WSS)"
+)
 ```
 
 ```{r}
-k_optimo <- 3
+k_optimo <- 2
 
 # 1. K-Medias
 set.seed(23709)
@@ -165,12 +155,12 @@ library(cluster)
 # Silueta para K-medias (sobre una muestra representativa)
 sil_kmeans <- silhouette(kmeans_res$cluster[muestra_idx], dist(movies_muestra))
 fviz_silhouette(sil_kmeans, print.summary = FALSE) + 
-  labs(title = "Silueta para K-Medias (k=3)")
+  labs(title = "Silueta para K-Medias (k=2)")
 
 # Silueta para Jerárquico
 sil_hc <- silhouette(hc_grupos, matriz_distancias)
 fviz_silhouette(sil_hc, print.summary = FALSE) + 
-  labs(title = "Silueta para Jerárquico (k=3)")
+  labs(title = "Silueta para Jerarquico (k=2)")
 ```
 
 
