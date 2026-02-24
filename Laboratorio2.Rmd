@@ -198,5 +198,81 @@ knitr::kable(resumen_grupos, digits = 2, caption = "Perfil Promedio por Clúster
 
 
 
+# 3. Análisis de Componentes Principales (PCA) 
+
+# Librerías necesarias
+library(psych)
+library(factoextra)
+library(corrplot)
+
+
+
+# 3.1 Selección de variables numéricas
+
+numericas_pca <- movies_clean %>%
+  select(popularity, runtime, voteCount, voteAvg,
+         actorsAmount, castWomenAmount, castMenAmount,
+         genresAmount, productionCoAmount,
+         productionCountriesAmount,
+         budget_log, revenue_log,
+         mean_actor_popularity, max_actor_popularity,
+         releaseYear) %>%
+  na.omit()
+
+
+
+# 3.2 Evaluación de factibilidad del PCA
+
+# Matriz de correlación
+cor_matrix <- cor(numericas_pca)
+
+corrplot(cor_matrix,
+         method = "color",
+         type = "upper",
+         tl.cex = 0.6)
+
+# Test de esfericidad de Bartlett
+bartlett_test <- cortest.bartlett(cor_matrix,
+                                  n = nrow(numericas_pca))
+bartlett_test
+
+# Índice KMO
+kmo_result <- KMO(cor_matrix)
+kmo_result
+
+
+
+# 3.3 Aplicación del PCA
+
+# Estandarización
+numericas_scaled <- scale(numericas_pca)
+
+# Ejecutar PCA
+pca_result <- prcomp(numericas_scaled,
+                     center = TRUE,
+                     scale. = TRUE)
+
+# Resumen del PCA
+summary(pca_result)
+
+# Scree Plot
+fviz_eig(pca_result, addlabels = TRUE)
+
+# Varianza acumulada
+varianza <- summary(pca_result)$importance
+varianza
+
+# Cargas factoriales
+loadings <- round(pca_result$rotation, 3)
+loadings
+
+# Biplot
+fviz_pca_biplot(pca_result,
+                repel = TRUE,
+                col.var = "blue",
+                col.ind = "gray")
+
+
+
 
 
