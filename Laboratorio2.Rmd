@@ -19,6 +19,10 @@ library(dplyr)
 library(tidyr)
 library(stringr)
 library(fastDummies)
+library(arules)
+library(arulesViz)
+
+
 
 movies <- read.csv("movies_2026.csv", header = TRUE)
 movies_clean <- movies
@@ -91,8 +95,9 @@ summary(movies_scaled)
 
 
 
+## 1. Clustering
 
-## 1.2 Tendencia al Agrupamiento (Hopkins y VAT)
+### 1.2 Tendencia al Agrupamiento (Hopkins y VAT)
 
 ```{r punto-1-2, message=FALSE, warning=FALSE, echo=FALSE, fig.height=5, fig.width=5, results='hide'}
 library(factoextra)
@@ -185,15 +190,15 @@ knitr::kable(resumen_grupos, digits = 2, caption = "Perfil Promedio por Clúster
 ```
 
 
-## 3. Análisis de Componentes Principales (PCA)
+## 2. Análisis de Componentes Principales (PCA)
 
-### 3.1. Transformación de variables categóricas
+### 2.1. Transformación de variables categóricas
 **¿Es posible y vale la pena?**
 
 Técnicamente es posible transformar variables categóricas utilizando variables *dummy* (0 y 1) sin embargo, en nuestro dataset de películas, estas variables presentan una alta cardinalidad al convertirlas, crearíamos una cantidad excesiva de columnas nuevas, generando un encuadre muy disperso que diluiría la varianza real que buscamos capturar por lo tanto, determinamos que **no vale la pena** incluirlas.
 
 
-### 3.2. Conveniencia del Análisis (Matriz, KMO y Bartlett)
+### 2.2. Conveniencia del Análisis (Matriz, KMO y Bartlett)
 
 Primero, preparamos nuestras variables numéricas y calculamos las pruebas de factibilidad para asegurarnos de que el lienzo de datos es el adecuado.
 
@@ -233,7 +238,7 @@ El valor p obtenido es **0** (prácticamente cero absoluto), el cual es muchísi
 
 ---
 
-### 3.3. Ejecución del PCA e Interpretación
+### 2.3. Ejecución del PCA e Interpretación
 
 A continuación, estandarizamos los datos directamente en la función y ejecutamos el modelo para extraer nuestros componentes principales.
 
@@ -271,3 +276,143 @@ Con un 14.7%, este eje captura casi en su totalidad el peso de las variables `me
 * **Componentes 3 y 4 (Estructura de Producción):** 
 
 Estos componentes recogen las varianzas secundarias relacionadas con la logística y el formato, balanceando variables como la cantidad total de actores en el reparto (`actorsAmount`), la duración de la película (`runtime`) y la cantidad de compañías productoras involucradas.
+
+
+
+## 3. Reglas de Asociación – Algoritmo A priori
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE, results='hide'}
+datos_reglas <- movies_analisis %>%
+  select(popularity, voteAvg, runtime, budget_log, revenue_log, Cluster)
+```
+
+
+```{r, message=FALSE, echo=FALSE, warning=FALSE, results='hide'}
+
+datos_reglas$popularity <- discretize(datos_reglas$popularity, 
+                                       method = "frequency", categories = 3)
+
+datos_reglas$voteAvg <- discretize(datos_reglas$voteAvg, 
+                                   method = "frequency", categories = 3)
+
+datos_reglas$runtime <- discretize(datos_reglas$runtime, 
+                                   method = "frequency", categories = 3)
+
+datos_reglas$budget_log <- discretize(datos_reglas$budget_log, 
+                                      method = "frequency", categories = 3)
+
+datos_reglas$revenue_log <- discretize(datos_reglas$revenue_log, 
+                                       method = "frequency", categories = 3)
+
+datos_reglas$Cluster <- as.factor(datos_reglas$Cluster)
+```
+
+```{r , message=FALSE, echo=FALSE, warning=FALSE, results='hide'}
+
+transacciones <- as(datos_reglas, "transactions")
+
+```
+
+
+### 3.1 Metodología
+
+Para identificar patrones frecuentes entre las características de las películas, se aplicó el algoritmo **A priori**.  
+Dado que el algoritmo requiere variables categóricas, las variables numéricas fueron discretizadas en tres niveles (bajo, medio, alto) utilizando el método de frecuencia (cuantiles).
+
+Se incluyeron las variables:
+
+- Popularidad  
+- Promedio de votos  
+- Duración  
+- Presupuesto (log)  
+- Ingresos (log)  
+- Clúster obtenido por K-medias  
+
+Se probaron tres configuraciones de soporte y confianza con el fin de evaluar la estabilidad y relevancia de las reglas obtenidas.
+
+---
+
+### 3.2 Resultados con Soporte Alto (0.10)
+```{r , message=FALSE, echo=FALSE, warning=FALSE}
+
+reglas1 <- apriori(transacciones,
+                   parameter = list(supp = 0.1, conf = 0.7, minlen = 2))
+
+summary(reglas1)
+inspect(head(sort(reglas1, by = "lift"), 10))
+
+```
+
+Con soporte mínimo de 10% se generaron 53 reglas.  
+Estas reglas representan patrones generales del dataset.
+
+Se observa que combinaciones de:
+
+- Presupuesto alto  
+- Ingresos altos  
+- Mayor duración  
+
+están fuertemente asociadas al **Cluster 2**, con valores de lift superiores a 2.5.  
+
+Esto indica que dichas características aumentan significativamente la probabilidad de pertenecer a ese grupo.
+
+---
+
+### 3.3 Resultados con Soporte Medio (0.05)
+```{r , message=FALSE, echo=FALSE, warning=FALSE}
+
+reglas2 <- apriori(transacciones,
+                   parameter = list(supp = 0.05, conf = 0.6, minlen = 2))
+
+summary(reglas2)
+inspect(head(sort(reglas2, by = "lift"), 10))
+
+```
+
+Al reducir el soporte al 5%, se obtuvieron 265 reglas, más específicas y con mayor nivel de detalle.
+
+Aparecen reglas con:
+
+- Confianza cercana a 0.98  
+- Lift alrededor de 3  
+
+Esto significa que ciertas combinaciones (alta popularidad, alto presupuesto y altos ingresos) hacen que la pertenencia al Cluster 2 sea hasta tres veces más probable que en el promedio general.
+
+---
+
+### 3.4 Resultados con Soporte Bajo (0.02)
+```{r , message=FALSE, echo=FALSE, warning=FALSE}
+
+reglas3 <- apriori(transacciones,
+                   parameter = list(supp = 0.02, conf = 0.5, minlen = 2))
+
+summary(reglas3)
+inspect(head(sort(reglas3, by = "lift"), 10))
+
+```
+
+Con soporte de 2% se generaron 960 reglas.  
+Aunque algunas presentan confianza igual a 1, su cobertura es baja, lo que indica que describen casos muy específicos.
+
+A menor soporte aumenta el número de reglas, pero disminuye su capacidad de generalización.
+
+---
+
+### 3.5 Discusión General
+
+En todos los niveles de soporte se observa un patrón consistente:  
+
+El **Cluster 2** está asociado con películas de:
+
+- Alta popularidad  
+- Alto presupuesto  
+- Altos ingresos  
+- Mayor duración  
+
+Esto confirma los resultados obtenidos previamente en el análisis de clustering y PCA, evidenciando que dicho clúster representa películas de mayor escala comercial.
+
+Es importante señalar que las reglas de asociación muestran relaciones probabilísticas frecuentes, pero no implican causalidad.
+
+---
+
+
