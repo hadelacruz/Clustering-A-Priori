@@ -415,4 +415,63 @@ Es importante señalar que las reglas de asociación muestran relaciones probabi
 
 ---
 
+## 4. Otros algoritmos de aprendizaje no supervisado (t-SNE)
+
+### 4.1. Elección y justificación del algoritmo
+
+Para esta sección hemos decidido implementar el algoritmo **t-SNE** (t-Distributed Stochastic Neighbor Embedding). 
+
+**¿Por qué t-SNE para este conjunto de datos?**
+
+Mientras que el Análisis de Componentes Principales (PCA) que realizamos anteriormente es una técnica lineal excelente para preservar la estructura global y las grandes varianzas del dataset, t-SNE es una técnica no lineal especializada en preservar la estructura *local*. 
+
+En el contexto de la industria las películas pueden tener relaciones complejas y no lineales t-SNE es de extrema utilidad aquí porque calcula la probabilidad de que dos películas sean "vecinas" en el espacio multidimensional y las proyecta en un mapa 2D. Esto nos permitirá descubrir si existen sub-agrupaciones más finas, nichos muy específicos o "islas" de películas que K-Medias y PCA agruparon de forma muy general.
+
+---
+
+### 4.2. Ejecución e Interpretación de Resultados
+
+Procedemos a ejecutar el algoritmo sobre nuestras variables numéricas limpias
+
+```{r tsne-ejecucion, message=FALSE, warning=FALSE, echo=FALSE}
+# Cargar librería necesaria (Asegurarse de tenerla instalada en la consola)
+library(Rtsne)
+library(ggplot2)
+
+# t-SNE requiere que no existan filas exactamente duplicadas. 
+# Filtramos los datos numéricos limpios por seguridad.
+datos_tsne <- numericas_pca[!duplicated(numericas_pca), ]
+
+set.seed(23709)
+
+# Ejecutamos t-SNE
+# perplexity = 30 
+tsne_out <- Rtsne(datos_tsne, dims = 2, perplexity = 30, verbose = FALSE, max_iter = 500)
+
+# Creamos un data frame con los resultados 2D para graficar
+tsne_df <- data.frame(
+  Dim1 = tsne_out$Y[, 1],
+  Dim2 = tsne_out$Y[, 2]
+)
+
+# Graficamos el resultado
+ggplot(tsne_df, aes(x = Dim1, y = Dim2)) +
+  geom_point(alpha = 0.4, color = "#2c3e50", size = 1.5) +
+  theme_minimal() +
+  labs(title = "Mapa de Similitud de Películas (t-SNE)",
+       subtitle = "Proyección no lineal de las variables numéricas",
+       x = "Dimensión t-SNE 1",
+       y = "Dimensión t-SNE 2")
+```
+
+**Interpretación y relevancia de los hallazgos:**
+
+* **Agrupación Visual:** Al observar el mapa generado por t-SNE, el hallazgo más sorprendente es que las películas no forman simples nubes aleatorias, sino que se organizan en estructuras alargadas, curvas y sumamente definidas cada uno de estos caminos representa secuencias y nichos de películas con perfiles estadísticos casi idénticos, demostrando que existen "familias" de producciones con características muy particulares de inversión, popularidad y elenco.
+
+
+* **Transiciones y Espectro:** A diferencia de una clasificación rígida el gráfico muestra carriles continuos separados por vacíos muy claros. Esto nos indica que el mercado cinematográfico sigue patrones de progresión marcados. Las películas experimentan una transición fluida dentro de su propio camino pero existen fronteras o vacíos que separan categóricamente a un tipo de producción de otra
+
+
+* **Complemento al Clustering Previo:** Mientras que el algoritmo K-medias nos dio una visión macroscópica t-SNE nos revela la verdadera topología compleja y no lineal de los datos. Demuestra que la industria no se divide simplemente en "películas grandes vs. pequeñas", sino en múltiples micro-estructuras y trayectorias de similitud que K-medias no puede detectar.
+
 
