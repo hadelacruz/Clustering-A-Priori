@@ -9,7 +9,7 @@ output: html_document
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
-```{r preprocesamiento, message=FALSE, warning=FALSE}
+```{r preprocesamiento, message=FALSE, echo=FALSE, warning=FALSE, results='hide'}
 # =====================================================
 # Carga de librerías y datos
 # =====================================================
@@ -94,7 +94,7 @@ summary(movies_scaled)
 
 ## 1.2 Tendencia al Agrupamiento (Hopkins y VAT)
 
-```{r punto-1-2, message=FALSE, warning=FALSE, fig.height=5, fig.width=5}
+```{r punto-1-2, message=FALSE, warning=FALSE, echo=FALSE, fig.height=5, fig.width=5, results='hide'}
 library(factoextra)
 library(clustertend)
 
@@ -114,7 +114,7 @@ fviz_dist(dist(movies_muestra), show_labels = FALSE) +
 ```
 
 
-```{r}
+```{r, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
 fviz_nbclust(
   movies_scaled,
   FUNcluster = function(x, k){
@@ -130,7 +130,7 @@ labs(
 )
 ```
 
-```{r}
+```{r, message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
 k_optimo <- 2
 
 # 1. K-Medias
@@ -149,7 +149,7 @@ fviz_cluster(kmeans_res, data = movies_scaled,
              main = "Agrupamiento K-Medias")
 ```
 
-```{r}
+```{r,message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
 library(cluster)
 
 # Silueta para K-medias (sobre una muestra representativa)
@@ -165,7 +165,7 @@ fviz_silhouette(sil_hc, print.summary = FALSE) +
 
 
 
-```{r}
+```{r,message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
 # Agregar el cluster de k-medias al dataset limpio original para interpretar
 movies_analisis <- movies_clean %>%
   mutate(Cluster = as.factor(kmeans_res$cluster))
@@ -187,74 +187,87 @@ knitr::kable(resumen_grupos, digits = 2, caption = "Perfil Promedio por Clúster
 
 ## 3. Análisis de Componentes Principales (PCA)
 
-### 3.1 Evaluación de variables categóricas
+### 3.1. Transformación de variables categóricas
+**¿Es posible y vale la pena?**
 
-El PCA requiere variables numéricas continuas.  
-Las variables categóricas como director, actores y compañías productoras presentan alta cardinalidad, por lo que transformarlas en variables dummy incrementaría excesivamente la dimensionalidad.  
-
-Por ello, el análisis se realiza únicamente con variables numéricas previamente transformadas.
+Técnicamente es posible transformar variables categóricas utilizando variables *dummy* (0 y 1) sin embargo, en nuestro dataset de películas, estas variables presentan una alta cardinalidad al convertirlas, crearíamos una cantidad excesiva de columnas nuevas, generando un encuadre muy disperso que diluiría la varianza real que buscamos capturar por lo tanto, determinamos que **no vale la pena** incluirlas.
 
 
-```{r}
+### 3.2. Conveniencia del Análisis (Matriz, KMO y Bartlett)
+
+Primero, preparamos nuestras variables numéricas y calculamos las pruebas de factibilidad para asegurarnos de que el lienzo de datos es el adecuado.
+
+```{r pca-pruebas, message=FALSE, warning=FALSE,echo=FALSE,results='hide'}
 library(psych)
-library(factoextra)
 library(corrplot)
+library(factoextra)
 
+# Seleccionamos las variables numéricas limpias, evitando multicolinealidad perfecta
 numericas_pca <- movies_clean %>%
-  select(popularity, runtime, voteCount, voteAvg,
-         actorsAmount, castWomenAmount, castMenAmount,
-         genresAmount, productionCoAmount,
-         productionCountriesAmount,
-         budget_log, revenue_log,
-         mean_actor_popularity, max_actor_popularity,
-         releaseYear) %>%
+  select(popularity, runtime, voteCount, voteAvg, actorsAmount, 
+         genresAmount, productionCoAmount, productionCountriesAmount, 
+         budget_log, revenue_log, mean_actor_popularity, max_actor_popularity, releaseYear) %>%
   na.omit()
 
-dim(numericas_pca)
+# 1. Matriz de Correlación
+matriz_cor <- cor(numericas_pca)
+corrplot(matriz_cor, method = "color", type = "upper", tl.cex = 0.7)
+
+# 2. Prueba de KMO
+KMO(matriz_cor)
+
+# 3. Test de Esfericidad de Bartlett
+cortest.bartlett(matriz_cor, n = nrow(numericas_pca))
 ```
 
-### 3.2 Evaluación de factibilidad del PCA
+**Interpretación de los resultados y viabilidad:**
 
-Se analiza la matriz de correlación, el test de esfericidad de Bartlett y el índice KMO para determinar si es adecuado aplicar PCA.
+**Estudio de la Matriz de Correlación:** 
+Al observar el gráfico, notamos inmediatamente "bloques" de color azul oscuro que nos indican fuertes correlaciones positivas. Destaca la altísima relación entre el presupuesto (`budget_log`) y los ingresos (`revenue_log`), los cuales a su vez están fuertemente ligados a la cantidad de votos (`voteCount`). También vemos una clara conexión entre la popularidad media y máxima de los actores.
 
-```{r}
-cor_matrix <- cor(numericas_pca)
+* **Técnica de Análisis Factorial (KMO):** 
+Obtuvimos un índice KMO general de **0.6**. Como este valor alcanza el umbral mínimo aceptable, concluimos que la proporción de varianza es adecuada y **sí es posible** utilizar la técnica de análisis factorial para hallar las componentes principales
 
-corrplot(cor_matrix,
-         method = "color",
-         type = "upper",
-         tl.cex = 0.6)
+* **Prueba de Esfericidad de Bartlett:** 
+El valor p obtenido es **0** (prácticamente cero absoluto), el cual es muchísimo menor a 0.05. Esto nos permite rechazar con total seguridad la hipótesis nula de que la matriz es una matriz identidad, confirmando matemáticamente la fuerte multicolinealidad observada en la gráfica. En definitiva, **sí vale la pena** aplicar las componentes principales.
 
-bartlett_test <- cortest.bartlett(cor_matrix,
-                                  n = nrow(numericas_pca))
-bartlett_test
+---
 
-kmo_result <- KMO(cor_matrix)
-kmo_result
-```
+### 3.3. Ejecución del PCA e Interpretación
 
-### 3.3 Aplicación del Análisis de Componentes Principales
+A continuación, estandarizamos los datos directamente en la función y ejecutamos el modelo para extraer nuestros componentes principales.
 
-Se estandarizan las variables y se ejecuta el PCA.  
-Posteriormente se analiza la varianza explicada y las cargas factoriales.
+```{r pca-modelo,message=FALSE, warning=FALSE, echo=FALSE, results='hide'}
+# Ejecución del modelo PCA
+pca_result <- prcomp(numericas_pca, center = TRUE, scale. = TRUE)
 
-```{r}
-numericas_scaled <- scale(numericas_pca)
-
-pca_result <- prcomp(numericas_scaled,
-                     center = TRUE,
-                     scale. = TRUE)
-
+# Resumen de la variabilidad explicada
 summary(pca_result)
 
-fviz_eig(pca_result, addlabels = TRUE)
+# Gráfico de sedimentación
+fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 50))
 
-summary(pca_result)$importance
-
-round(pca_result$rotation, 3)
-
-fviz_pca_biplot(pca_result,
-                repel = TRUE,
-                col.var = "blue",
-                col.ind = "gray")
+# Coeficientes principales (Loadings) de los primeros componentes
+round(pca_result$rotation[, 1:4], 3)
 ```
+
+**Selección de Componentes (Variabilidad):**
+
+Al observar el gráfico de sedimentación (*Scree plot*), buscamos el punto donde la caída de la varianza crea un "codo" y comienza a estabilizarse. Vemos que el mayor aporte de información se da al inicio. Por lo tanto **seleccionaremos los primeros 4 componentes**. 
+Tomamos esta decisión porque al sumar sus varianzas individuales estos 4 ejes logran explicar de forma acumulada el **57.2% de la variabilidad total** de nuestros datos, logrando un excelente equilibrio entre reducir la dimensionalidad y retener la información más valiosa de las películas.
+
+
+**Interpretación de los Coeficientes Principales:**
+Analizando la matriz de rotación y basándonos en las correlaciones previas, estos nuevos "ángulos" de nuestros datos se interpretan de la siguiente manera:
+
+* **Componente 1 (Dim1 - Éxito Comercial e Inversión):** 
+
+Este componente lidera con el 22.9% de la variabilidad y está fuertemente dibujado por las variables financieras (`budget_log`, `revenue_log`) y de interacción del público (`voteCount`). Nos habla directamente de la magnitud económica y el impacto comercial de la cinta.
+
+* **Componente 2 (Dim2 - Poder Estelar del Elenco):**
+
+Con un 14.7%, este eje captura casi en su totalidad el peso de las variables `mean_actor_popularity` y `max_actor_popularity`. Es un indicador claro y directo de qué tan famoso y reconocido es el talento involucrado en la producción.
+
+* **Componentes 3 y 4 (Estructura de Producción):** 
+
+Estos componentes recogen las varianzas secundarias relacionadas con la logística y el formato, balanceando variables como la cantidad total de actores en el reparto (`actorsAmount`), la duración de la película (`runtime`) y la cantidad de compañías productoras involucradas.
